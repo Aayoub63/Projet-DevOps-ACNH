@@ -1,0 +1,118 @@
+---
+- name: Déploiement du TP noté sur la VM
+  hosts: vm_tpnote
+  become: yes
+
+  tasks:
+    # 1. Installation de Docker
+    - name: Mise à jour du cache apt
+      apt:
+        update_cache: yes
+
+    - name: Installation de Docker
+      apt:
+        name: docker.io
+        state: present
+
+    - name: Installation de Docker Compose (via apt)
+      apt:
+        name: docker-compose
+        state: present
+
+    - name: Démarrage de Docker
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    # 2. Création du dossier de déploiement
+    - name: Création du dossier de déploiement
+      file:
+        path: /opt/tpnote
+        state: directory
+        mode: '0755'
+
+    # 3. Création du fichier acme.json
+    - name: Création du fichier acme.json avec bonnes permissions
+      file:
+        path: /opt/tpnote/acme.json
+        state: touch
+        mode: '0600'
+
+    # 3.5 Création des dossiers de provisioning Grafana (Méthode GitOps)
+    - name: Création des dossiers de provisioning Grafana
+      file:
+        path: "/opt/tpnote/grafana/provisioning/{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - datasources
+        - dashboards
+
+    # 4. Nettoyage des anciens dossiers sources inutiles (Dette technique)
+    - name: Nettoyer les anciens dossiers sources
+      file:
+        path: "/opt/tpnote/{{ item }}"
+        state: absent
+      loop:
+        - backend
+        - frontend
+
+    # 5. Copie des templates
+    - name: Copie de traefik.yaml
+      template:
+        src: templates/traefik.yaml.j2
+        dest: /opt/tpnote/traefik.yaml
+        mode: '0644'
+
+    - name: Copie de la configuration Prometheus
+      template:
+        src: templates/prometheus.yml.j2
+        dest: /opt/tpnote/prometheus.yml
+        mode: '0644'
+
+    - name: Copie du provisioning Datasource Grafana
+      template:
+        src: templates/grafana-datasources.yml.j2
+        dest: /opt/tpnote/grafana/provisioning/datasources/prometheus.yml
+        mode: '0644'
+
+    - name: Copie du provisioning Dashboards Grafana
+      template:
+        src: templates/grafana-dashboards.yml.j2
+        dest: /opt/tpnote/grafana/provisioning/dashboards/default.yml
+        mode: '0644'
+
+    - name: Copie de docker-compose.yml
+      template:
+        src: templates/docker-compose.yml.j2
+        dest: /opt/tpnote/docker-compose.yml
+        mode: '0644'
+
+    # Connexion au registre GitLab pour pouvoir télécharger les images
+    - name: Connexion au registre Docker GitLab
+      shell: echo "{{ registry_token }}" | docker login registry.edu.forestier.re -u {{ registry_user }} --password-stdin
+
+    - name: Téléchargement de l'image Backend
+      command: docker pull registry.edu.forestier.re/{{ project_namespace }}/backend:{{ app_version | default('latest') }}
+
+    - name: Téléchargement de l'image Frontend
+      command: docker pull registry.edu.forestier.re/{{ project_namespace }}/frontend:{{ app_version | default('latest') }}
+
+    # 7. Lancement du stack Docker
+    - name: Nettoyage forcé des anciens conteneurs 
+      shell: docker rm -f $(docker ps -aq) || true
+      ignore_errors: yes
+
+    - name: Lancement du stack Docker
+      command: docker-compose up -d --remove-orphans
+      args:
+        chdir: /opt/tpnote
+      environment:
+        MYSQL_HOST: "{{ mysql_host }}"
+        MYSQL_USERNAME: "{{ mysql_username }}"
+        MYSQL_PASSWORD: "{{ mysql_password }}"
+        MYSQL_DATABASE_NAME: "{{ mysql_database_name }}"
+        user_id_uca: "{{ user_id_uca }}"
+        APP_VERSION: "{{ app_version | default('latest') }}"
+        PROJECT_NAMESPACE: "{{ project_namespace }}"

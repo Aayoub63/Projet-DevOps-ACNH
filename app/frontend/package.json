@@ -1,0 +1,69 @@
+{
+  "name": "ACNHCollector-Front",
+  "version": "2.0.0",
+  "private": true,
+  "author": "Artheriom",
+  "scripts": {
+    "serve": "NODE_OPTIONS=--openssl-legacy-provider vue-cli-service serve --port 6969",
+    "build": "vue-cli-service build",
+    "lint": "vue-cli-service lint"
+  },
+  "dependencies": {
+    "@fortawesome/fontawesome-free": "^5.12.1",
+    "@johmun/vue-tags-input": "^2.1.0",
+    "axios": "^0.19.2",
+    "bootstrap": "^4.4.1",
+    "bootstrap-vue": "^2.5.0",
+    "core-js": "^3.6.4",
+    "luxon": "^1.23.0",
+    "portal-vue": "2.1.7",
+    "tiptap": "^1.26.6",
+    "tiptap-extensions": "^1.28.6",
+    "vue": "2.7.16",
+    "vue-awesome-notifications": "^3.1.0",
+    "vue-axios": "^2.1.5",
+    "vue-datetime": "^1.0.0-beta.11",
+    "vue-json-pretty": "^1.6.3",
+    "vue-matomo": "^3.13.0-4",
+    "vue-multiselect": "^2.1.3",
+    "vue-notification": "^1.3.20",
+    "vue-papa-parse": "^1.3.0",
+    "vue-plotly": "^1.1.0",
+    "vue-router": "^3.1.5",
+    "vue-sidebar-menu": "^4.5.2",
+    "vuejs-datetimepicker": "^1.1.13",
+    "vuex": "^3.1.2",
+    "weekstart": "^1.0.1"
+  },
+  "devDependencies": {
+    "@vue/cli-plugin-babel": "~4.2.0",
+    "@vue/cli-plugin-eslint": "~4.2.0",
+    "@vue/cli-service": "~4.2.0",
+    "babel-eslint": "^10.0.3",
+    "eslint": "^6.7.2",
+    "eslint-plugin-vue": "^6.1.2",
+    "vue-template-compiler": "^2.7.0",
+    "sass": "^1.77.0",
+    "sass-loader": "^10.0.0",
+    "@babel/compat-data": "7.29.0"
+  },
+  "eslintConfig": {
+    "root": true,
+    "env": {
+      "node": true
+    },
+    "extends": [
+      "plugin:vue/essential",
+      "eslint:recommended"
+    ],
+    "parserOptions": {
+      "parser": "babel-eslint"
+    },
+    "rules": {}
+  },
+  "browserslist": [
+    "> 1%",
+    "last 2 versions",
+    "not ie <= 8"
+  ]
+}

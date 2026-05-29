@@ -1,0 +1,85 @@
+version: '3.4'
+
+services:
+  traefik:
+    image: traefik:v3.6
+    command:
+      - "--configFile=/traefik.yaml"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik.yaml:/traefik.yaml:ro
+      - ./acme.json:/acme.json
+    labels:
+      - "traefik.enable=true"
+    restart: unless-stopped
+
+  backend:
+    image: registry.edu.forestier.re/${PROJECT_NAMESPACE}/backend:${APP_VERSION}
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mariadb://{{ mysql_host }}:3306/{{ mysql_database_name }}
+      - SPRING_DATASOURCE_USERNAME={{ mysql_username }}
+      - SPRING_DATASOURCE_PASSWORD={{ mysql_password }}
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+      - SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=2
+    labels:
+      - "traefik.enable=true"
+      # Middleware CORS pour autoriser le frontend à envoyer des requêtes POST/PUT vers l'API
+      - "traefik.http.middlewares.cors-api.headers.accessControlAllowMethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.cors-api.headers.accessControlAllowOriginList=https://{{ user_id_uca }}.uca-devops.ovh"
+      - "traefik.http.middlewares.cors-api.headers.accessControlAllowHeaders=Origin, Content-Type, Accept, Authorization"
+      - "traefik.http.middlewares.cors-api.headers.accessControlAllowCredentials=true"
+      - "traefik.http.middlewares.cors-api.headers.accessControlMaxAge=100"
+      - "traefik.http.middlewares.cors-api.headers.addVaryHeader=true"
+      # Routage de l'API (uniquement en HTTPS)
+      - "traefik.http.routers.backend.entrypoints=websecure"
+      - "traefik.http.routers.backend.rule=Host(`api.{{ user_id_uca }}.uca-devops.ovh`)"
+      - "traefik.http.routers.backend.tls=true"
+      - "traefik.http.routers.backend.middlewares=cors-api@docker"
+      - "traefik.http.routers.backend.tls.certResolver=letsencrypt"
+      - "traefik.http.services.backend.loadbalancer.server.port=8080"
+    restart: unless-stopped
+
+  frontend:
+    image: registry.edu.forestier.re/${PROJECT_NAMESPACE}/frontend:${APP_VERSION}
+    labels:
+      - "traefik.enable=true"
+      # Routage du Frontend (uniquement en HTTPS)
+      - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.rule=Host(`{{ user_id_uca }}.uca-devops.ovh`)"
+      - "traefik.http.routers.frontend.tls=true"
+      - "traefik.http.routers.frontend.tls.certResolver=letsencrypt"
+      - "traefik.http.services.frontend.loadbalancer.server.port=80"
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    depends_on:
+      - prometheus
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.entrypoints=websecure"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.{{ user_id_uca }}.uca-devops.ovh`)"
+      - "traefik.http.routers.grafana.tls=true"
+      - "traefik.http.routers.grafana.tls.certResolver=letsencrypt"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+    restart: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    restart: unless-stopped
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    command:
+      - '--path.rootfs=/host'

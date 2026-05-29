@@ -1,0 +1,6 @@
+# Dépendances et builds locaux
+node_modules/
+dist/
+
+# Git et IDE
+.git/

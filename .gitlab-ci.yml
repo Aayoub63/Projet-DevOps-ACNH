@@ -1,0 +1,114 @@
+image: registry.edu.forestier.re/infrastructure/images/docker:v1.0.0
+
+stages:
+  - test
+  - build
+  - deploy
+
+variables:
+  DOCKER_BUILDKIT: "1"
+  REGISTRY: registry.edu.forestier.re
+  BACKEND_IMAGE: $REGISTRY/$CI_PROJECT_NAMESPACE/backend
+  FRONTEND_IMAGE: $REGISTRY/$CI_PROJECT_NAMESPACE/frontend
+
+
+validate_tofu:
+  stage: test
+  image: 
+    name: ghcr.io/opentofu/opentofu:latest
+    entrypoint: [""]
+  script:
+    - cd tofu
+    - tofu init -backend=false
+    - tofu validate
+
+validate_ansible:
+  stage: test
+  image: registry.edu.forestier.re/infrastructure/images/ansible:v1.0.0
+  script:
+    - cd ansible
+    - ansible-playbook --syntax-check deploy.yml
+
+
+
+# TEMPLATE : Factorisation des étapes de compilation et d'envoi Docker
+# Évite le copier-coller (Anti-pattern "Le copier-coller sans gouvernance")
+.build_push_template:
+  stage: build
+  before_script:
+    # Récupération sécurisée des variables depuis OpenBao
+    - get_secrets.sh > /tmp/secrets.json
+    - export REGISTRY_TOKEN=$(cat /tmp/secrets.json | grep -o '"REGISTRY_TOKEN":"[^"]*"' | cut -d'"' -f4)
+    - echo "$REGISTRY_TOKEN" | docker login -u $CI_REGISTRY_USER --password-stdin $REGISTRY
+  only:
+    - main
+    - develop
+
+build_backend:
+  extends: .build_push_template
+  script:
+    - cd app/backend
+    # Build & Push combinés pour accélérer le feedback (Lutte contre "Le pipeline lent")
+    - docker build -t $BACKEND_IMAGE:$CI_COMMIT_SHA .
+    - docker tag $BACKEND_IMAGE:$CI_COMMIT_SHA $BACKEND_IMAGE:latest
+    - docker push $BACKEND_IMAGE:$CI_COMMIT_SHA
+    - docker push $BACKEND_IMAGE:latest
+
+build_frontend:
+  extends: .build_push_template
+  script:
+    - cd app/frontend
+    - docker build --build-arg VUE_APP_API="https://api.${USER_ID_UCA}.uca-devops.ovh/" -t $FRONTEND_IMAGE:$CI_COMMIT_SHA .
+    - docker tag $FRONTEND_IMAGE:$CI_COMMIT_SHA $FRONTEND_IMAGE:latest
+    - docker push $FRONTEND_IMAGE:$CI_COMMIT_SHA
+    - docker push $FRONTEND_IMAGE:latest
+
+# TEMPLATE : Déploiement via Ansible
+.deploy_template:
+  stage: deploy
+  image: registry.edu.forestier.re/infrastructure/images/ansible:v1.0.0
+  script:
+    # On passe toutes les variables nécessaires à Ansible
+    - ansible-playbook -i inventory.yml deploy.yml --private-key /key -e "registry_token=$REGISTRY_TOKEN" -e "mysql_host=$MYSQL_HOST" -e "mysql_username=$MYSQL_USERNAME" -e "mysql_password=$MYSQL_PASSWORD" -e "mysql_database_name=$MYSQL_DATABASE_NAME" -e "app_version=$CI_COMMIT_SHA" -e "user_id_uca=$USER_ID_UCA" -e "acme_email=$ACME_EMAIL" -e "registry_user=$CI_REGISTRY_USER" -e "project_namespace=$CI_PROJECT_NAMESPACE"
+
+deploy_app:
+  extends: .deploy_template
+  before_script:
+    - echo "Déploiement sur ${USER_ID_UCA}.uca-devops.ovh"
+    - get_secrets.sh > /tmp/secrets.json
+    - export SSH_KEY_B64=$(cat /tmp/secrets.json | grep -o '"SSH_KEY":"[^"]*"' | cut -d'"' -f4)
+    - echo "$SSH_KEY_B64" | base64 -d > /key
+    - echo -e "\n" >> /key
+    - chmod 600 /key
+    - export REGISTRY_TOKEN=$(cat /tmp/secrets.json | grep -o '"REGISTRY_TOKEN":"[^"]*"' | cut -d'"' -f4)
+    - export MYSQL_HOST=$(cat /tmp/secrets.json | grep -o '"MYSQL_HOST":"[^"]*"' | cut -d'"' -f4)
+    - export MYSQL_USERNAME=$(cat /tmp/secrets.json | grep -o '"MYSQL_USERNAME":"[^"]*"' | cut -d'"' -f4)
+    - export MYSQL_PASSWORD=$(cat /tmp/secrets.json | grep -o '"MYSQL_PASSWORD":"[^"]*"' | cut -d'"' -f4)
+    - export MYSQL_DATABASE_NAME=$(cat /tmp/secrets.json | grep -o '"MYSQL_DATABASE_NAME":"[^"]*"' | cut -d'"' -f4)
+    - cd ansible
+    - echo "vm_tpnote ansible_host=${USER_ID_UCA}.uca-devops.ovh ansible_user=ubuntu" > inventory.yml
+  only:
+    - main
+    - develop
+    - tags
+
+# JOB : Initialisation des données
+# Défini en "manuel" pour garantir l'idempotence et ne pas écraser les données existantes (Lutte contre "La pipeline non-déterministe")
+init_database:
+  stage: deploy
+  image: registry.edu.forestier.re/infrastructure/images/docker:v1.0.0
+  before_script:
+    - get_secrets.sh > /tmp/secrets.json
+    - export MYSQL_HOST=$(cat /tmp/secrets.json | grep -o '"MYSQL_HOST":"[^"]*"' | cut -d'"' -f4)
+    - export MYSQL_USERNAME=$(cat /tmp/secrets.json | grep -o '"MYSQL_USERNAME":"[^"]*"' | cut -d'"' -f4)
+    - export MYSQL_PASSWORD=$(cat /tmp/secrets.json | grep -o '"MYSQL_PASSWORD":"[^"]*"' | cut -d'"' -f4)
+    - export MYSQL_DATABASE_NAME=$(cat /tmp/secrets.json | grep -o '"MYSQL_DATABASE_NAME":"[^"]*"' | cut -d'"' -f4)
+  script:
+    - echo "Importation des données initiales dans Clever Cloud..."
+    - echo "SET FOREIGN_KEY_CHECKS=0; DROP TABLE IF EXISTS apiuser_art_collection, apiuser_flower_collection, apiuser_fossil_collection, apiuser_music_collection, apiflower_produces, apiart, apiflower, apifossil, apimusic, apiuser, apiserie, apiright; SET FOREIGN_KEY_CHECKS=1;" | docker run --rm -i mariadb:10.5 mariadb -h "$MYSQL_HOST" -u "$MYSQL_USERNAME" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE_NAME"
+    - sed -e '/CREATE DATABASE/d' -e '/USE/d' app/backend/dump.sql | docker run --rm -i mariadb:10.5 mariadb -h "$MYSQL_HOST" -u "$MYSQL_USERNAME" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE_NAME"
+    - echo "Importation terminée !"
+  when: manual
+  only:
+    - main
+    - develop

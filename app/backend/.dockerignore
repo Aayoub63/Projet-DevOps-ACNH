@@ -1,0 +1,8 @@
+# Fichiers de build locaux
+target/
+*.log
+
+# Git et IDE
+.git/
+.idea/
+.vscode/
