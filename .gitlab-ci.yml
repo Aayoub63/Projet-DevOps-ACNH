@@ -4,12 +4,39 @@ stages:
   - test
   - build
   - deploy
+  - verify
 
 variables:
   DOCKER_BUILDKIT: "1"
   REGISTRY: registry.edu.forestier.re
   BACKEND_IMAGE: $REGISTRY/$CI_PROJECT_NAMESPACE/backend
   FRONTEND_IMAGE: $REGISTRY/$CI_PROJECT_NAMESPACE/frontend
+  MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
+
+
+# Tests du backend (JUnit 5 + Mockito + base H2 en mémoire)
+# Si un test échoue, le pipeline s'arrête : aucune image n'est construite ni déployée.
+test_backend:
+  stage: test
+  image: maven:3.8.6-openjdk-8-slim
+  cache:
+    key: maven
+    paths:
+      - .m2/repository
+  script:
+    - cd app/backend
+    - mvn -B test
+    # Affiche la couverture JaCoCo pour que GitLab la récupère (mot-clé coverage)
+    - |
+      awk -F, 'NR>1 {m+=$4; c+=$5} END {printf "Couverture instructions : %.1f%%\n", 100*c/(m+c)}' target/site/jacoco/jacoco.csv
+  coverage: '/Couverture instructions : (\d+\.\d+)%/'
+  artifacts:
+    when: always
+    reports:
+      junit: app/backend/target/surefire-reports/TEST-*.xml
+    paths:
+      - app/backend/target/site/jacoco/
+    expire_in: 7 days
 
 
 validate_tofu:
@@ -69,7 +96,7 @@ build_frontend:
   image: registry.edu.forestier.re/infrastructure/images/ansible:v1.0.0
   script:
     # On passe toutes les variables nécessaires à Ansible
-    - ansible-playbook -i inventory.yml deploy.yml --private-key /key -e "registry_token=$REGISTRY_TOKEN" -e "mysql_host=$MYSQL_HOST" -e "mysql_username=$MYSQL_USERNAME" -e "mysql_password=$MYSQL_PASSWORD" -e "mysql_database_name=$MYSQL_DATABASE_NAME" -e "app_version=$CI_COMMIT_SHA" -e "user_id_uca=$USER_ID_UCA" -e "acme_email=$ACME_EMAIL" -e "registry_user=$CI_REGISTRY_USER" -e "project_namespace=$CI_PROJECT_NAMESPACE"
+    - ansible-playbook -i inventory.yml deploy.yml --private-key /key -e "registry_token=$REGISTRY_TOKEN" -e "mysql_host=$MYSQL_HOST" -e "mysql_username=$MYSQL_USERNAME" -e "mysql_password=$MYSQL_PASSWORD" -e "mysql_database_name=$MYSQL_DATABASE_NAME" -e "grafana_admin_password=$GRAFANA_ADMIN_PASSWORD" -e "app_version=$CI_COMMIT_SHA" -e "user_id_uca=$USER_ID_UCA" -e "acme_email=$ACME_EMAIL" -e "registry_user=$CI_REGISTRY_USER" -e "project_namespace=$CI_PROJECT_NAMESPACE"
 
 deploy_app:
   extends: .deploy_template
@@ -85,6 +112,7 @@ deploy_app:
     - export MYSQL_USERNAME=$(cat /tmp/secrets.json | grep -o '"MYSQL_USERNAME":"[^"]*"' | cut -d'"' -f4)
     - export MYSQL_PASSWORD=$(cat /tmp/secrets.json | grep -o '"MYSQL_PASSWORD":"[^"]*"' | cut -d'"' -f4)
     - export MYSQL_DATABASE_NAME=$(cat /tmp/secrets.json | grep -o '"MYSQL_DATABASE_NAME":"[^"]*"' | cut -d'"' -f4)
+    - export GRAFANA_ADMIN_PASSWORD=$(cat /tmp/secrets.json | grep -o '"GRAFANA_ADMIN_PASSWORD":"[^"]*"' | cut -d'"' -f4)
     - cd ansible
     - echo "vm_tpnote ansible_host=${USER_ID_UCA}.uca-devops.ovh ansible_user=ubuntu" > inventory.yml
   only:
@@ -112,3 +140,31 @@ init_database:
   only:
     - main
     - develop
+# JOB : Vérification après déploiement
+# On teste l'application depuis l'extérieur, comme un utilisateur : DNS, certificat HTTPS,
+# routage Traefik et réponse de l'application. Si une URL ne répond pas 200, le pipeline échoue.
+verify_deploy:
+  stage: verify
+  image:
+    name: curlimages/curl:8.10.1
+    entrypoint: [""]
+  script:
+    - |
+      for url in "https://${USER_ID_UCA}.uca-devops.ovh/" "https://api.${USER_ID_UCA}.uca-devops.ovh/arts" "https://grafana.${USER_ID_UCA}.uca-devops.ovh/api/health"; do
+        ok=0
+        for i in $(seq 1 10); do
+          code=$(curl -s -o /dev/null -w "%{http_code}" "$url")
+          echo "$url -> HTTP $code (essai $i/10)"
+          if [ "$code" = "200" ]; then ok=1; break; fi
+          sleep 10
+        done
+        if [ "$ok" != "1" ]; then
+          echo "ECHEC : $url ne répond pas correctement"
+          exit 1
+        fi
+      done
+      echo "Toutes les vérifications sont OK"
+  only:
+    - main
+    - develop
+    - tags
