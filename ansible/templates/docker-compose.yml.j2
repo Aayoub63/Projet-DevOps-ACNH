@@ -1,5 +1,8 @@
 version: '3.4'
 
+# Les secrets (BDD, Grafana) sont lus dans le fichier .env généré par Ansible (droits 600).
+# Ils ne sont plus écrits en clair dans ce fichier.
+
 services:
   traefik:
     image: traefik:v3.6
@@ -19,9 +22,9 @@ services:
   backend:
     image: registry.edu.forestier.re/${PROJECT_NAMESPACE}/backend:${APP_VERSION}
     environment:
-      - SPRING_DATASOURCE_URL=jdbc:mariadb://{{ mysql_host }}:3306/{{ mysql_database_name }}
-      - SPRING_DATASOURCE_USERNAME={{ mysql_username }}
-      - SPRING_DATASOURCE_PASSWORD={{ mysql_password }}
+      - SPRING_DATASOURCE_URL=jdbc:mariadb://${MYSQL_HOST}:3306/${MYSQL_DATABASE_NAME}
+      - SPRING_DATASOURCE_USERNAME=${MYSQL_USERNAME}
+      - SPRING_DATASOURCE_PASSWORD=${MYSQL_PASSWORD}
       - SPRING_JPA_HIBERNATE_DDL_AUTO=update
       - SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=2
     labels:
@@ -34,6 +37,7 @@ services:
       - "traefik.http.middlewares.cors-api.headers.accessControlMaxAge=100"
       - "traefik.http.middlewares.cors-api.headers.addVaryHeader=true"
       # Routage de l'API (uniquement en HTTPS)
+      # Seul le port 8080 est routé : l'actuator (8081) reste interne au réseau Docker
       - "traefik.http.routers.backend.entrypoints=websecure"
       - "traefik.http.routers.backend.rule=Host(`api.{{ user_id_uca }}.uca-devops.ovh`)"
       - "traefik.http.routers.backend.tls=true"
@@ -55,15 +59,18 @@ services:
     restart: unless-stopped
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.55.1
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     restart: unless-stopped
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:11.3.0
     depends_on:
       - prometheus
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+      - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
     labels:
@@ -76,7 +83,7 @@ services:
     restart: unless-stopped
 
   node-exporter:
-    image: prom/node-exporter:latest
+    image: prom/node-exporter:v1.8.2
     restart: unless-stopped
     pid: host
     volumes:
