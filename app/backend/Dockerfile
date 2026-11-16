@@ -13,9 +13,10 @@ USER spring:spring
 # On copie l'artefact en donnant les droits au nouvel utilisateur
 COPY --from=build --chown=spring:spring /app/target/*.jar app.jar
 
-# Healthcheck intégré pour vérifier que l'API Spring Boot répond
+# Healthcheck : endpoint actuator (port 8081, non exposé par Traefik).
+# Il vérifie aussi la connexion à la base de données.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD wget -q --spider http://localhost:8080/arts || exit 1
+  CMD wget -q --spider http://localhost:8081/actuator/health || exit 1
 
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "app.jar"]
