@@ -199,6 +199,67 @@ Une fois le déploiement terminé :
 
 
 
+## Tests et vérifications
+
+### Tests du backend
+
+Le stage `test` lance maintenant les tests du backend (`test_backend`), en plus de la validation OpenTofu et Ansible :
+
+- **Tests unitaires** (`APIArtServiceTest`) : la logique du service est testée avec un repository simulé (Mockito).
+- **Tests d'intégration** (`APIArtControllerTest`) : l'application démarre avec une base H2 en mémoire et on appelle l'API (codes 200, 404, 401).
+
+Si un test échoue, aucune image n'est construite ni déployée. Les résultats apparaissent dans l'onglet **Tests** du pipeline (rapport JUnit) et la couverture JaCoCo est affichée sur le job.
+
+En local, sans Java installé :
+
+```bash
+cd app/backend
+docker run --rm -v "$PWD":/app -w /app maven:3.8.6-openjdk-8-slim mvn -B test
+```
+
+### Vérification du déploiement
+
+Le déploiement est vérifié à deux niveaux :
+
+1. **Ansible** attend que les healthchecks Docker du backend et du frontend passent à `healthy`. Sinon, le job `deploy_app` échoue.
+2. **Le job `verify_deploy`** appelle les URLs publiques (application, API, Grafana) depuis l'extérieur. Il vérifie le DNS, le certificat HTTPS, le routage Traefik et la réponse de l'application.
+
+Le healthcheck du backend utilise `/actuator/health`, qui vérifie aussi la connexion à la base.
+
+### Monitoring
+
+- **Prometheus** collecte les métriques de la VM (node-exporter) **et de l'application** (Spring Boot Actuator / Micrometer).
+- **Grafana** charge automatiquement le dashboard `ACNHCollector` : disponibilité du backend, erreurs 5xx, requêtes par seconde, temps de réponse, pool de connexions Hikari, mémoire JVM, CPU, RAM et disque de la VM.
+- L'actuator écoute sur le port **8081**, que Traefik ne route pas : les métriques ne sont pas accessibles depuis internet.
+- Le mot de passe admin de Grafana est lu dans OpenBao (clé `GRAFANA_ADMIN_PASSWORD`, à ajouter au secret).
+
+### Ansible idempotent
+
+Relancer le playbook sans changement ne modifie rien :
+
+- les conteneurs ne sont plus tous supprimés à chaque déploiement : `docker-compose up -d` ne recrée que ce qui a changé ;
+- si un fichier de configuration change, seul le service concerné est redémarré (handlers) ;
+- les secrets sont écrits dans un fichier `.env` (droits 600) au lieu d'être en clair dans `docker-compose.yml`.
+
+### Tester toute la stack en local
+
+Le dossier `local/` permet de lancer l'application avec une base MariaDB locale, Prometheus et Grafana, en réutilisant les mêmes fichiers de configuration que la production :
+
+```bash
+cd local
+docker compose up -d --build
+./verify_local.sh
+```
+
+- Application : http://localhost:8000
+- API : http://localhost:8080/arts
+- Prometheus : http://localhost:9090
+- Grafana : http://localhost:3000 (admin / admin-local)
+
+Pour tout arrêter : `docker compose down -v`.
+
+---
+
 ### Destruction de l'infrastructure
 
 ```bash
