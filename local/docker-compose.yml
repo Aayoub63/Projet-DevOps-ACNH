@@ -1,0 +1,64 @@
+# Stack de test en local (sans la VM UCA, sans Traefik ni Clever Cloud).
+# Elle réutilise les mêmes fichiers Prometheus / Grafana que la production.
+#
+#   cd local && docker compose up -d --build
+#   ./verify_local.sh
+#   docker compose down -v
+
+services:
+  mariadb:
+    image: mariadb:10.5
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+    volumes:
+      # dump.sql crée la base "acnh" et ses données au premier démarrage
+      - ../app/backend/dump.sql:/docker-entrypoint-initdb.d/dump.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
+      interval: 5s
+      retries: 30
+
+  backend:
+    build: ../app/backend
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mariadb://mariadb:3306/acnh
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=root
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+      - SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=2
+    ports:
+      - "8080:8080"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ../app/frontend
+      args:
+        VUE_APP_API: http://localhost:8080/
+    ports:
+      - "8000:80"
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    volumes:
+      - ../ansible/templates/prometheus.yml.j2:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin-local
+    volumes:
+      - ../ansible/templates/grafana-datasources.yml.j2:/etc/grafana/provisioning/datasources/prometheus.yml:ro
+      - ../ansible/templates/grafana-dashboards.yml.j2:/etc/grafana/provisioning/dashboards/default.yml:ro
+      - ../ansible/files/grafana/acnh-dashboard.json:/etc/grafana/provisioning/dashboards/acnh-dashboard.json:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus

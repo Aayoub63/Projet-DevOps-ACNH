@@ -18,3 +18,5 @@ inventory.yml
 .env
 .env
 target/
+# Script de vérification de la stack locale (versionné)
+!local/verify_local.sh
