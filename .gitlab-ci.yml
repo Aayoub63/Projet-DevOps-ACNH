@@ -114,9 +114,9 @@ deploy_app:
     - MYSQL_DATABASE_NAME=$(jq -er 'first(.. | .MYSQL_DATABASE_NAME? // empty)' /tmp/secrets.json)
     - GRAFANA_ADMIN_PASSWORD=$(jq -er 'first(.. | .GRAFANA_ADMIN_PASSWORD? // empty)' /tmp/secrets.json)
     - cd ansible
-    - echo "vm_acnh ansible_host=${USER_ID_UCA}.uca-devops.ovh ansible_user=ubuntu" > inventory.yml
+    - echo "vm_acnh ansible_host=${USER_ID_UCA}.uca-devops.ovh ansible_user=ubuntu" > inventory.ini
   script:
-    - ansible-playbook -i inventory.yml deploy.yml --private-key /key -e "registry_token=$REGISTRY_TOKEN" -e "mysql_host=$MYSQL_HOST" -e "mysql_username=$MYSQL_USERNAME" -e "mysql_password=$MYSQL_PASSWORD" -e "mysql_database_name=$MYSQL_DATABASE_NAME" -e "grafana_admin_password=$GRAFANA_ADMIN_PASSWORD" -e "app_version=$CI_COMMIT_SHA" -e "user_id_uca=$USER_ID_UCA" -e "acme_email=$ACME_EMAIL" -e "registry_user=$CI_REGISTRY_USER" -e "project_namespace=$CI_PROJECT_NAMESPACE"
+    - ansible-playbook -i inventory.ini deploy.yml --private-key /key -e "registry_token=$REGISTRY_TOKEN" -e "mysql_host=$MYSQL_HOST" -e "mysql_username=$MYSQL_USERNAME" -e "mysql_password=$MYSQL_PASSWORD" -e "mysql_database_name=$MYSQL_DATABASE_NAME" -e "grafana_admin_password=$GRAFANA_ADMIN_PASSWORD" -e "app_version=$CI_COMMIT_SHA" -e "user_id_uca=$USER_ID_UCA" -e "acme_email=$ACME_EMAIL" -e "registry_user=$CI_REGISTRY_USER" -e "project_namespace=$CI_PROJECT_NAMESPACE"
   only:
     - main
     - develop

@@ -12,7 +12,7 @@ env.sh
 **/mariadb-*.sh
 
 *.retry
-inventory.yml
+inventory.ini
 
 .DS_Store
 .env
