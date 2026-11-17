@@ -95,14 +95,9 @@ build_frontend:
 
 # Déploiement sur la VM avec Ansible. Les secrets sont passés en variables (-e)
 # et Ansible les écrit dans le .env de la VM ; ils ne sont pas stockés dans le dépôt.
-.deploy_template:
+deploy_app:
   stage: deploy
   image: registry.edu.forestier.re/infrastructure/images/ansible:v1.0.0
-  script:
-    - ansible-playbook -i inventory.yml deploy.yml --private-key /key -e "registry_token=$REGISTRY_TOKEN" -e "mysql_host=$MYSQL_HOST" -e "mysql_username=$MYSQL_USERNAME" -e "mysql_password=$MYSQL_PASSWORD" -e "mysql_database_name=$MYSQL_DATABASE_NAME" -e "grafana_admin_password=$GRAFANA_ADMIN_PASSWORD" -e "app_version=$CI_COMMIT_SHA" -e "user_id_uca=$USER_ID_UCA" -e "acme_email=$ACME_EMAIL" -e "registry_user=$CI_REGISTRY_USER" -e "project_namespace=$CI_PROJECT_NAMESPACE"
-
-deploy_app:
-  extends: .deploy_template
   before_script:
     - echo "Déploiement sur ${USER_ID_UCA}.uca-devops.ovh"
     - get_secrets.sh > /tmp/secrets.json
@@ -120,6 +115,8 @@ deploy_app:
     - GRAFANA_ADMIN_PASSWORD=$(jq -er 'first(.. | .GRAFANA_ADMIN_PASSWORD? // empty)' /tmp/secrets.json)
     - cd ansible
     - echo "vm_acnh ansible_host=${USER_ID_UCA}.uca-devops.ovh ansible_user=ubuntu" > inventory.yml
+  script:
+    - ansible-playbook -i inventory.yml deploy.yml --private-key /key -e "registry_token=$REGISTRY_TOKEN" -e "mysql_host=$MYSQL_HOST" -e "mysql_username=$MYSQL_USERNAME" -e "mysql_password=$MYSQL_PASSWORD" -e "mysql_database_name=$MYSQL_DATABASE_NAME" -e "grafana_admin_password=$GRAFANA_ADMIN_PASSWORD" -e "app_version=$CI_COMMIT_SHA" -e "user_id_uca=$USER_ID_UCA" -e "acme_email=$ACME_EMAIL" -e "registry_user=$CI_REGISTRY_USER" -e "project_namespace=$CI_PROJECT_NAMESPACE"
   only:
     - main
     - develop
