@@ -148,7 +148,10 @@ init_database:
     # visible dans la liste des processus (ps aux) pendant toute la connexion.
     - echo "Importation des données initiales dans Clever Cloud..."
     - echo "SET FOREIGN_KEY_CHECKS=0; DROP TABLE IF EXISTS apiuser_art_collection, apiuser_flower_collection, apiuser_fossil_collection, apiuser_music_collection, apiflower_produces, apiart, apiflower, apifossil, apimusic, apiuser, apiserie, apiright; SET FOREIGN_KEY_CHECKS=1;" | MYSQL_PWD="$MYSQL_PASSWORD" docker run --rm -i -e MYSQL_PWD mariadb:10.5 mariadb -h "$MYSQL_HOST" -u "$MYSQL_USERNAME" "$MYSQL_DATABASE_NAME"
-    - sed -e '/CREATE DATABASE/d' -e '/USE/d' app/backend/dump.sql | MYSQL_PWD="$MYSQL_PASSWORD" docker run --rm -i -e MYSQL_PWD mariadb:10.5 mariadb -h "$MYSQL_HOST" -u "$MYSQL_USERNAME" "$MYSQL_DATABASE_NAME"
+    # La base existe déjà chez Clever Cloud, avec un nom imposé : on retire du dump
+    # les instructions qui la créent et la sélectionnent. Le ^ limite la règle au début
+    # de ligne, pour ne pas supprimer une donnée qui contiendrait "USE" (MUSEUM...).
+    - sed -e '/^CREATE DATABASE /d' -e '/^USE /d' app/backend/dump.sql | MYSQL_PWD="$MYSQL_PASSWORD" docker run --rm -i -e MYSQL_PWD mariadb:10.5 mariadb -h "$MYSQL_HOST" -u "$MYSQL_USERNAME" "$MYSQL_DATABASE_NAME"
     - echo "Importation terminée !"
   when: manual
   only:
