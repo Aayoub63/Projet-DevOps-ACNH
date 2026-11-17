@@ -90,20 +90,23 @@ Exemple de fichier `env.sh` :
 ```bash
 #!/bin/bash
 
+# Identifiant utilisé dans le nom de la VM et le sous-domaine
+export TF_VAR_user_id="..."
+
 # Provider OVH
-export OVH_ENDPOINT="ovh-eu"
-export OVH_APPLICATION_KEY="..."
-export OVH_APPLICATION_SECRET="..."
-export OVH_CONSUMER_KEY="..."
+export TF_VAR_ovh_endpoint="ovh-eu"
+export TF_VAR_ovh_application_key="..."
+export TF_VAR_ovh_application_secret="..."
+export TF_VAR_ovh_consumer_key="..."
 
 # Provider UCA
-export TF_VAR_UCA_TOKEN="..."
-export TF_VAR_ssh_public_key="..." 
+export TF_VAR_uca_token="..."
+export TF_VAR_ssh_public_key="..."
 
 # Provider Clever Cloud
-export TF_VAR_CC_ORGANISATION="..."
-export TF_VAR_CC_TOKEN="..."
-export TF_VAR_CC_SECRET="..."
+export TF_VAR_clevercloud_organisation="..."
+export TF_VAR_clevercloud_token="..."
+export TF_VAR_clevercloud_secret="..."
 
 # Backend OpenTofu
 export TF_HTTP_USERNAME="..."

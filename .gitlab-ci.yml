@@ -14,8 +14,8 @@ variables:
   MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
 
 
-# Tests du backend (JUnit 5 + Mockito + base H2 en mémoire)
-# Si un test échoue, le pipeline s'arrête : aucune image n'est construite ni déployée.
+# Tests du backend (JUnit 5, Mockito, base H2 en mémoire).
+# Un test en échec arrête le pipeline : aucune image n'est construite ni déployée.
 test_backend:
   stage: test
   image: maven:3.8.6-openjdk-8-slim
@@ -26,7 +26,7 @@ test_backend:
   script:
     - cd app/backend
     - mvn -B test
-    # Affiche la couverture JaCoCo pour que GitLab la récupère (mot-clé coverage)
+    # GitLab lit la couverture dans la sortie du job avec l'expression du mot-clé coverage.
     - |
       awk -F, 'NR>1 {m+=$4; c+=$5} END {printf "Couverture instructions : %.1f%%\n", 100*c/(m+c)}' target/site/jacoco/jacoco.csv
   coverage: '/Couverture instructions : (\d+\.\d+)%/'
@@ -39,10 +39,12 @@ test_backend:
     expire_in: 7 days
 
 
+# Vérifie la syntaxe de l'infrastructure sans toucher au cloud (pas de backend, pas de plan).
 validate_tofu:
   stage: test
-  image: 
+  image:
     name: ghcr.io/opentofu/opentofu:1.11.5
+    # L'image lance tofu par défaut ; GitLab a besoin d'un shell pour exécuter le script.
     entrypoint: [""]
   script:
     - cd tofu
@@ -58,16 +60,15 @@ validate_ansible:
 
 
 
-# TEMPLATE : Factorisation des étapes de compilation et d'envoi Docker
-# Évite le copier-coller (Anti-pattern "Le copier-coller sans gouvernance")
+# Partie commune aux deux builds : récupération du jeton et connexion au registre.
 .build_push_template:
   stage: build
   before_script:
-    # Récupération sécurisée des variables depuis OpenBao.
-    # jq -e échoue si la clé manque : pas de déploiement avec un secret vide.
-    # Pas de "export X=$(...)" : export cacherait l'échec de la commande.
+    # Les secrets viennent d'OpenBao et ne sont jamais affichés dans les logs.
+    # jq -e échoue si la clé manque, ce qui évite de continuer avec un secret vide.
+    # On n'écrit pas "export X=$(...)" : le code retour d'export masquerait l'échec de jq.
     - get_secrets.sh > /tmp/secrets.json
-    # jq lit le JSON des secrets ; on l'installe seulement s'il manque dans l'image
+    # Installe jq uniquement si l'image ne le fournit pas (Alpine ou Debian).
     - command -v jq >/dev/null || apk add --no-cache jq >/dev/null || (apt-get update -qq && apt-get install -y -qq jq)
     - REGISTRY_TOKEN=$(jq -er 'first(.. | .REGISTRY_TOKEN? // empty)' /tmp/secrets.json)
     - echo "$REGISTRY_TOKEN" | docker login -u $CI_REGISTRY_USER --password-stdin $REGISTRY
@@ -79,8 +80,8 @@ build_backend:
   extends: .build_push_template
   script:
     - cd app/backend
-    # Build & Push combinés pour accélérer le feedback (Lutte contre "Le pipeline lent")
-    # Une seule étiquette : le SHA du commit. Pas de "latest", qui ne dit pas quelle version tourne.
+    # L'image est étiquetée avec le SHA du commit : on sait exactement quel code tourne,
+    # et le déploiement réutilise la même étiquette. "latest" ne permettrait pas de le savoir.
     - docker build -t $BACKEND_IMAGE:$CI_COMMIT_SHA .
     - docker push $BACKEND_IMAGE:$CI_COMMIT_SHA
 
@@ -88,15 +89,16 @@ build_frontend:
   extends: .build_push_template
   script:
     - cd app/frontend
+    # L'URL de l'API est figée dans le bundle Vue au moment du build.
     - docker build --build-arg VUE_APP_API="https://api.${USER_ID_UCA}.uca-devops.ovh/" -t $FRONTEND_IMAGE:$CI_COMMIT_SHA .
     - docker push $FRONTEND_IMAGE:$CI_COMMIT_SHA
 
-# TEMPLATE : Déploiement via Ansible
+# Déploiement sur la VM avec Ansible. Les secrets sont passés en variables (-e)
+# et Ansible les écrit dans le .env de la VM ; ils ne sont pas stockés dans le dépôt.
 .deploy_template:
   stage: deploy
   image: registry.edu.forestier.re/infrastructure/images/ansible:v1.0.0
   script:
-    # On passe toutes les variables nécessaires à Ansible
     - ansible-playbook -i inventory.yml deploy.yml --private-key /key -e "registry_token=$REGISTRY_TOKEN" -e "mysql_host=$MYSQL_HOST" -e "mysql_username=$MYSQL_USERNAME" -e "mysql_password=$MYSQL_PASSWORD" -e "mysql_database_name=$MYSQL_DATABASE_NAME" -e "grafana_admin_password=$GRAFANA_ADMIN_PASSWORD" -e "app_version=$CI_COMMIT_SHA" -e "user_id_uca=$USER_ID_UCA" -e "acme_email=$ACME_EMAIL" -e "registry_user=$CI_REGISTRY_USER" -e "project_namespace=$CI_PROJECT_NAMESPACE"
 
 deploy_app:
@@ -104,8 +106,8 @@ deploy_app:
   before_script:
     - echo "Déploiement sur ${USER_ID_UCA}.uca-devops.ovh"
     - get_secrets.sh > /tmp/secrets.json
-    # jq lit le JSON des secrets ; on l'installe seulement s'il manque dans l'image
     - command -v jq >/dev/null || apk add --no-cache jq >/dev/null || (apt-get update -qq && apt-get install -y -qq jq)
+    # La clé SSH est stockée en base64 ; ssh exige une ligne vide finale et des droits 600.
     - SSH_KEY_B64=$(jq -er 'first(.. | .SSH_KEY? // empty)' /tmp/secrets.json)
     - echo "$SSH_KEY_B64" | base64 -d > /key
     - echo -e "\n" >> /key
@@ -117,20 +119,20 @@ deploy_app:
     - MYSQL_DATABASE_NAME=$(jq -er 'first(.. | .MYSQL_DATABASE_NAME? // empty)' /tmp/secrets.json)
     - GRAFANA_ADMIN_PASSWORD=$(jq -er 'first(.. | .GRAFANA_ADMIN_PASSWORD? // empty)' /tmp/secrets.json)
     - cd ansible
-    - echo "vm_tpnote ansible_host=${USER_ID_UCA}.uca-devops.ovh ansible_user=ubuntu" > inventory.yml
+    - echo "vm_acnh ansible_host=${USER_ID_UCA}.uca-devops.ovh ansible_user=ubuntu" > inventory.yml
   only:
     - main
     - develop
     - tags
 
-# JOB : Initialisation des données
-# Défini en "manuel" pour garantir l'idempotence et ne pas écraser les données existantes (Lutte contre "La pipeline non-déterministe")
+# Réinitialise la base avec le jeu de données de dump.sql.
+# Le job supprime les tables avant l'import : il est manuel pour qu'un simple push
+# n'efface jamais les données de production.
 init_database:
   stage: deploy
   image: registry.edu.forestier.re/infrastructure/images/docker:v1.0.0
   before_script:
     - get_secrets.sh > /tmp/secrets.json
-    # jq lit le JSON des secrets ; on l'installe seulement s'il manque dans l'image
     - command -v jq >/dev/null || apk add --no-cache jq >/dev/null || (apt-get update -qq && apt-get install -y -qq jq)
     - MYSQL_HOST=$(jq -er 'first(.. | .MYSQL_HOST? // empty)' /tmp/secrets.json)
     - MYSQL_USERNAME=$(jq -er 'first(.. | .MYSQL_USERNAME? // empty)' /tmp/secrets.json)
@@ -145,9 +147,9 @@ init_database:
   only:
     - main
     - develop
-# JOB : Vérification après déploiement
-# On teste l'application depuis l'extérieur, comme un utilisateur : DNS, certificat HTTPS,
-# routage Traefik et réponse de l'application. Si une URL ne répond pas 200, le pipeline échoue.
+
+# Teste l'application depuis l'extérieur, comme un utilisateur : DNS, certificat HTTPS,
+# routage Traefik et réponse de l'application. Une URL qui ne répond pas 200 fait échouer le pipeline.
 verify_deploy:
   stage: verify
   image:

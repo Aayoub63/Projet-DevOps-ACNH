@@ -1,11 +1,3 @@
-variable "instances" {
-  default = ["Database"]
-}
-
-variable "db_name" {
-  default = "mariadb"
-}
-
 resource "clevercloud_addon" "database" {
   name                 = "mariadb-Database"
   plan                 = "dev"
@@ -13,9 +5,11 @@ resource "clevercloud_addon" "database" {
   region               = "par"
 }
 
-resource "local_sensitive_file" "export" {
+# Écrit les accès à la base dans mariadb-Database.sh (fichier ignoré par Git),
+# pour pouvoir ensuite les enregistrer dans OpenBao.
+resource "local_sensitive_file" "mariadb_credentials" {
   filename = "mariadb-Database.sh"
-  content = templatefile("mysql.sh.template", { 
-    config = clevercloud_addon.database.configurations 
+  content = templatefile("mysql.sh.template", {
+    config = clevercloud_addon.database.configurations
   })
 }

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Generated config file from OpenTofu
+# Fichier généré par OpenTofu : accès à la base MariaDB de Clever Cloud
 
 export MYSQL_HOST=${config["MYSQL_ADDON_HOST"]}
 export MYSQL_PORT=${config["MYSQL_ADDON_PORT"]}
