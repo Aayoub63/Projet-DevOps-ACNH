@@ -98,6 +98,11 @@ build_frontend:
 deploy_app:
   stage: deploy
   image: registry.edu.forestier.re/infrastructure/images/ansible:v1.0.0
+  variables:
+    # Par défaut, si aucun hôte de l'inventaire ne correspond à "hosts:" du playbook,
+    # Ansible affiche un simple avertissement et renvoie 0 : le job passe au vert sans
+    # avoir rien déployé. Avec "error", ce cas fait échouer le pipeline.
+    ANSIBLE_HOST_PATTERN_MISMATCH: "error"
   before_script:
     - echo "Déploiement sur ${USER_ID_UCA}.uca-devops.ovh"
     - get_secrets.sh > /tmp/secrets.json
