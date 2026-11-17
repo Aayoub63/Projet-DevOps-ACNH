@@ -1,7 +1,7 @@
 version: '3.4'
 
-# Les secrets (BDD, Grafana) sont lus dans le fichier .env généré par Ansible (droits 600).
-# Ils ne sont plus écrits en clair dans ce fichier.
+# Les secrets (base de données, Grafana) sont lus dans le fichier .env que génère Ansible,
+# avec des droits 600 ; ce fichier-ci ne contient donc aucun mot de passe.
 
 services:
   traefik:

@@ -10,7 +10,7 @@ scrape_configs:
 
   - job_name: 'node-exporter'
     static_configs:
-      # On utilise le nom du service défini dans le docker-compose
+      # Le DNS interne de Docker résout le nom du service, l'IP du conteneur peut changer
       - targets: ['node-exporter:9100']
 
   # Métriques de l'application Spring Boot (actuator sur le port 8081)

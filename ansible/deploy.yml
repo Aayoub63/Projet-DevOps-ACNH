@@ -1,10 +1,13 @@
 ---
-- name: Déploiement du TP noté sur la VM
-  hosts: vm_tpnote
+- name: Déploiement d'ACNHCollector sur la VM
+  hosts: vm_acnh
   become: yes
 
+  vars:
+    deploy_dir: /opt/acnh
+    registry: registry.edu.forestier.re
+
   tasks:
-    # 1. Installation de Docker
     - name: Mise à jour du cache apt
       apt:
         update_cache: yes
@@ -15,7 +18,7 @@
         name: docker.io
         state: present
 
-    - name: Installation de Docker Compose (via apt)
+    - name: Installation de Docker Compose
       apt:
         name: docker-compose
         state: present
@@ -26,123 +29,107 @@
         state: started
         enabled: yes
 
-    # 2. Création du dossier de déploiement
     - name: Création du dossier de déploiement
       file:
-        path: /opt/tpnote
+        path: "{{ deploy_dir }}"
         state: directory
         mode: '0755'
 
-    # 3. Création du fichier acme.json
-    # On ne touche le fichier que s'il n'existe pas, sinon "touch" le marque modifié à chaque passage
-    - name: Création du fichier acme.json avec bonnes permissions
+    # Traefik refuse un acme.json lisible par d'autres utilisateurs, d'où les droits 600.
+    # Les dates sont conservées pour que la tâche ne signale pas un changement à chaque passage.
+    - name: Création du fichier acme.json (certificats Let's Encrypt)
       file:
-        path: /opt/tpnote/acme.json
+        path: "{{ deploy_dir }}/acme.json"
         state: touch
         mode: '0600'
         modification_time: preserve
         access_time: preserve
 
-    # 3.5 Création des dossiers de provisioning Grafana (Méthode GitOps)
     - name: Création des dossiers de provisioning Grafana
       file:
-        path: "/opt/tpnote/grafana/provisioning/{{ item }}"
+        path: "{{ deploy_dir }}/grafana/provisioning/{{ item }}"
         state: directory
         mode: '0755'
       loop:
         - datasources
         - dashboards
 
-    # 4. Nettoyage des anciens dossiers sources inutiles (Dette technique)
-    - name: Nettoyer les anciens dossiers sources
-      file:
-        path: "/opt/tpnote/{{ item }}"
-        state: absent
-      loop:
-        - backend
-        - frontend
-
-    # 5. Copie des fichiers de configuration
-    # Si un fichier change, on redémarre seulement le service concerné (handlers en bas)
-    - name: Copie de traefik.yaml
+    # Une configuration modifiée redémarre uniquement le service concerné (voir les handlers).
+    - name: Copie de la configuration Traefik
       template:
         src: templates/traefik.yaml.j2
-        dest: /opt/tpnote/traefik.yaml
+        dest: "{{ deploy_dir }}/traefik.yaml"
         mode: '0644'
       notify: Redémarrer traefik
 
     - name: Copie de la configuration Prometheus
       template:
         src: templates/prometheus.yml.j2
-        dest: /opt/tpnote/prometheus.yml
+        dest: "{{ deploy_dir }}/prometheus.yml"
         mode: '0644'
       notify: Redémarrer prometheus
 
-    - name: Copie du provisioning Datasource Grafana
+    - name: Copie de la source de données Grafana
       template:
         src: templates/grafana-datasources.yml.j2
-        dest: /opt/tpnote/grafana/provisioning/datasources/prometheus.yml
+        dest: "{{ deploy_dir }}/grafana/provisioning/datasources/prometheus.yml"
         mode: '0644'
       notify: Redémarrer grafana
 
-    - name: Copie du provisioning Dashboards Grafana
+    - name: Copie de la configuration des dashboards Grafana
       template:
         src: templates/grafana-dashboards.yml.j2
-        dest: /opt/tpnote/grafana/provisioning/dashboards/default.yml
+        dest: "{{ deploy_dir }}/grafana/provisioning/dashboards/default.yml"
         mode: '0644'
       notify: Redémarrer grafana
 
-    - name: Copie du dashboard Grafana de l'application
+    # Grafana relit ce dossier toutes les 30 secondes : pas besoin de redémarrage.
+    - name: Copie du dashboard de l'application
       copy:
         src: files/grafana/acnh-dashboard.json
-        dest: /opt/tpnote/grafana/provisioning/dashboards/acnh-dashboard.json
+        dest: "{{ deploy_dir }}/grafana/provisioning/dashboards/acnh-dashboard.json"
         mode: '0644'
 
     - name: Copie de docker-compose.yml
       template:
         src: templates/docker-compose.yml.j2
-        dest: /opt/tpnote/docker-compose.yml
+        dest: "{{ deploy_dir }}/docker-compose.yml"
         mode: '0644'
 
-    # Les secrets vont dans un .env lisible uniquement par root
-    - name: Création du fichier .env (secrets)
+    # Les secrets sont lus par docker-compose dans ce fichier, lisible par root uniquement.
+    - name: Création du fichier .env des secrets
       template:
         src: templates/env.j2
-        dest: /opt/tpnote/.env
+        dest: "{{ deploy_dir }}/.env"
         mode: '0600'
       no_log: true
 
-    # 6. Images Docker
-    # Connexion au registre GitLab pour pouvoir télécharger les images
-    - name: Connexion au registre Docker GitLab
-      shell: echo "{{ registry_token }}" | docker login registry.edu.forestier.re -u {{ registry_user }} --password-stdin
+    - name: Connexion au registre d'images
+      shell: echo "{{ registry_token }}" | docker login {{ registry }} -u {{ registry_user }} --password-stdin
       changed_when: false
       no_log: true
 
     - name: Téléchargement des images de l'application
-      command: docker pull registry.edu.forestier.re/{{ project_namespace }}/{{ item }}:{{ app_version }}
+      command: docker pull {{ registry }}/{{ project_namespace }}/{{ item }}:{{ app_version }}
       loop:
         - backend
         - frontend
-      register: pull
-      changed_when: "'Downloaded newer image' in pull.stdout"
+      register: image_pull
+      changed_when: "'Downloaded newer image' in image_pull.stdout"
 
-    # 7. Lancement du stack Docker
-    # docker-compose ne recrée que les conteneurs dont l'image ou la config a changé.
-    # On n'arrête plus tous les conteneurs à chaque déploiement.
-    - name: Lancement du stack Docker
+    # docker-compose ne recrée que les conteneurs dont l'image ou la configuration a changé.
+    - name: Lancement des conteneurs
       command: docker-compose up -d --remove-orphans
       args:
-        chdir: /opt/tpnote
+        chdir: "{{ deploy_dir }}"
       register: compose_up
       changed_when: compose_up.stderr is search('Creating|Recreating|Starting|Removing')
 
-    # 8. Vérification : on attend que le healthcheck du backend passe à "healthy"
-    # Si ce n'est pas le cas au bout de 3 minutes, le job de déploiement échoue.
+    # Le déploiement échoue si le backend n'est pas healthy au bout de 3 minutes (18 essais de 10 s).
     - name: Attente du backend en bonne santé
       shell: docker inspect --format '{% raw %}{{.State.Health.Status}}{% endraw %}' $(docker-compose ps -q backend)
       args:
-        chdir: /opt/tpnote
+        chdir: "{{ deploy_dir }}"
       register: backend_health
       until: backend_health.stdout == "healthy"
       retries: 18
@@ -152,7 +139,7 @@
     - name: Attente du frontend en bonne santé
       shell: docker inspect --format '{% raw %}{{.State.Health.Status}}{% endraw %}' $(docker-compose ps -q frontend)
       args:
-        chdir: /opt/tpnote
+        chdir: "{{ deploy_dir }}"
       register: frontend_health
       until: frontend_health.stdout == "healthy"
       retries: 12
@@ -163,14 +150,14 @@
     - name: Redémarrer traefik
       command: docker-compose restart traefik
       args:
-        chdir: /opt/tpnote
+        chdir: "{{ deploy_dir }}"
 
     - name: Redémarrer prometheus
       command: docker-compose restart prometheus
       args:
-        chdir: /opt/tpnote
+        chdir: "{{ deploy_dir }}"
 
     - name: Redémarrer grafana
       command: docker-compose restart grafana
       args:
-        chdir: /opt/tpnote
+        chdir: "{{ deploy_dir }}"
