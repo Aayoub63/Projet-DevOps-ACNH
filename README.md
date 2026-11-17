@@ -247,6 +247,7 @@ Le dossier `local/` permet de lancer l'application avec une base MariaDB locale,
 
 ```bash
 cd local
+cp .env.example .env      # puis choisir les mots de passe (fichier non versionné)
 docker compose up -d --build
 ./verify_local.sh
 ```
@@ -254,7 +255,7 @@ docker compose up -d --build
 - Application : http://localhost:8000
 - API : http://localhost:8080/arts
 - Prometheus : http://localhost:9090
-- Grafana : http://localhost:3000 (admin / admin-local)
+- Grafana : http://localhost:3000 (utilisateur `admin`, mot de passe choisi dans `local/.env`)
 
 Pour tout arrêter : `docker compose down -v`.
 

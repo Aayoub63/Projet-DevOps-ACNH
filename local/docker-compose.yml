@@ -1,7 +1,8 @@
 # Stack de test en local (sans la VM UCA, sans Traefik ni Clever Cloud).
 # Elle réutilise les mêmes fichiers Prometheus / Grafana que la production.
 #
-#   cd local && docker compose up -d --build
+#   cd local && cp .env.example .env    (puis choisir les mots de passe)
+#   docker compose up -d --build
 #   ./verify_local.sh
 #   docker compose down -v
 
@@ -9,12 +10,12 @@ services:
   mariadb:
     image: mariadb:10.5
     environment:
-      MARIADB_ROOT_PASSWORD: root
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?Créez local/.env à partir de .env.example}
     volumes:
       # dump.sql crée la base "acnh" et ses données au premier démarrage
       - ../app/backend/dump.sql:/docker-entrypoint-initdb.d/dump.sql:ro
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p$$MARIADB_ROOT_PASSWORD"]
       interval: 5s
       retries: 30
 
@@ -23,7 +24,7 @@ services:
     environment:
       - SPRING_DATASOURCE_URL=jdbc:mariadb://mariadb:3306/acnh
       - SPRING_DATASOURCE_USERNAME=root
-      - SPRING_DATASOURCE_PASSWORD=root
+      - SPRING_DATASOURCE_PASSWORD=${MARIADB_ROOT_PASSWORD:?Créez local/.env à partir de .env.example}
       - SPRING_JPA_HIBERNATE_DDL_AUTO=update
       - SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=2
     ports:
@@ -53,7 +54,7 @@ services:
   grafana:
     image: grafana/grafana:11.3.0
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin-local
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?Créez local/.env à partir de .env.example}
     volumes:
       - ../ansible/templates/grafana-datasources.yml.j2:/etc/grafana/provisioning/datasources/prometheus.yml:ro
       - ../ansible/templates/grafana-dashboards.yml.j2:/etc/grafana/provisioning/dashboards/default.yml:ro
