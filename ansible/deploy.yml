@@ -120,7 +120,7 @@
       no_log: true
 
     - name: Téléchargement des images de l'application
-      command: docker pull registry.edu.forestier.re/{{ project_namespace }}/{{ item }}:{{ app_version | default('latest') }}
+      command: docker pull registry.edu.forestier.re/{{ project_namespace }}/{{ item }}:{{ app_version }}
       loop:
         - backend
         - frontend
