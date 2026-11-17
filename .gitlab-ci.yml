@@ -72,9 +72,12 @@ validate_ansible:
     - command -v jq >/dev/null || apk add --no-cache jq >/dev/null || (apt-get update -qq && apt-get install -y -qq jq)
     - REGISTRY_TOKEN=$(jq -er 'first(.. | .REGISTRY_TOKEN? // empty)' /tmp/secrets.json)
     - echo "$REGISTRY_TOKEN" | docker login -u $CI_REGISTRY_USER --password-stdin $REGISTRY
+  # Mêmes déclencheurs que deploy_app : chaque déploiement doit trouver
+  # dans le registre l'image construite pour son commit.
   only:
     - main
     - develop
+    - tags
 
 build_backend:
   extends: .build_push_template
