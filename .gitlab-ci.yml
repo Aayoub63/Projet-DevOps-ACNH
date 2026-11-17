@@ -42,7 +42,7 @@ test_backend:
 validate_tofu:
   stage: test
   image: 
-    name: ghcr.io/opentofu/opentofu:latest
+    name: ghcr.io/opentofu/opentofu:1.11.5
     entrypoint: [""]
   script:
     - cd tofu
@@ -63,9 +63,13 @@ validate_ansible:
 .build_push_template:
   stage: build
   before_script:
-    # Récupération sécurisée des variables depuis OpenBao
+    # Récupération sécurisée des variables depuis OpenBao.
+    # jq -e échoue si la clé manque : pas de déploiement avec un secret vide.
+    # Pas de "export X=$(...)" : export cacherait l'échec de la commande.
     - get_secrets.sh > /tmp/secrets.json
-    - export REGISTRY_TOKEN=$(cat /tmp/secrets.json | grep -o '"REGISTRY_TOKEN":"[^"]*"' | cut -d'"' -f4)
+    # jq lit le JSON des secrets ; on l'installe seulement s'il manque dans l'image
+    - command -v jq >/dev/null || apk add --no-cache jq >/dev/null || (apt-get update -qq && apt-get install -y -qq jq)
+    - REGISTRY_TOKEN=$(jq -er 'first(.. | .REGISTRY_TOKEN? // empty)' /tmp/secrets.json)
     - echo "$REGISTRY_TOKEN" | docker login -u $CI_REGISTRY_USER --password-stdin $REGISTRY
   only:
     - main
@@ -76,19 +80,16 @@ build_backend:
   script:
     - cd app/backend
     # Build & Push combinés pour accélérer le feedback (Lutte contre "Le pipeline lent")
+    # Une seule étiquette : le SHA du commit. Pas de "latest", qui ne dit pas quelle version tourne.
     - docker build -t $BACKEND_IMAGE:$CI_COMMIT_SHA .
-    - docker tag $BACKEND_IMAGE:$CI_COMMIT_SHA $BACKEND_IMAGE:latest
     - docker push $BACKEND_IMAGE:$CI_COMMIT_SHA
-    - docker push $BACKEND_IMAGE:latest
 
 build_frontend:
   extends: .build_push_template
   script:
     - cd app/frontend
     - docker build --build-arg VUE_APP_API="https://api.${USER_ID_UCA}.uca-devops.ovh/" -t $FRONTEND_IMAGE:$CI_COMMIT_SHA .
-    - docker tag $FRONTEND_IMAGE:$CI_COMMIT_SHA $FRONTEND_IMAGE:latest
     - docker push $FRONTEND_IMAGE:$CI_COMMIT_SHA
-    - docker push $FRONTEND_IMAGE:latest
 
 # TEMPLATE : Déploiement via Ansible
 .deploy_template:
@@ -103,16 +104,18 @@ deploy_app:
   before_script:
     - echo "Déploiement sur ${USER_ID_UCA}.uca-devops.ovh"
     - get_secrets.sh > /tmp/secrets.json
-    - export SSH_KEY_B64=$(cat /tmp/secrets.json | grep -o '"SSH_KEY":"[^"]*"' | cut -d'"' -f4)
+    # jq lit le JSON des secrets ; on l'installe seulement s'il manque dans l'image
+    - command -v jq >/dev/null || apk add --no-cache jq >/dev/null || (apt-get update -qq && apt-get install -y -qq jq)
+    - SSH_KEY_B64=$(jq -er 'first(.. | .SSH_KEY? // empty)' /tmp/secrets.json)
     - echo "$SSH_KEY_B64" | base64 -d > /key
     - echo -e "\n" >> /key
     - chmod 600 /key
-    - export REGISTRY_TOKEN=$(cat /tmp/secrets.json | grep -o '"REGISTRY_TOKEN":"[^"]*"' | cut -d'"' -f4)
-    - export MYSQL_HOST=$(cat /tmp/secrets.json | grep -o '"MYSQL_HOST":"[^"]*"' | cut -d'"' -f4)
-    - export MYSQL_USERNAME=$(cat /tmp/secrets.json | grep -o '"MYSQL_USERNAME":"[^"]*"' | cut -d'"' -f4)
-    - export MYSQL_PASSWORD=$(cat /tmp/secrets.json | grep -o '"MYSQL_PASSWORD":"[^"]*"' | cut -d'"' -f4)
-    - export MYSQL_DATABASE_NAME=$(cat /tmp/secrets.json | grep -o '"MYSQL_DATABASE_NAME":"[^"]*"' | cut -d'"' -f4)
-    - export GRAFANA_ADMIN_PASSWORD=$(cat /tmp/secrets.json | grep -o '"GRAFANA_ADMIN_PASSWORD":"[^"]*"' | cut -d'"' -f4)
+    - REGISTRY_TOKEN=$(jq -er 'first(.. | .REGISTRY_TOKEN? // empty)' /tmp/secrets.json)
+    - MYSQL_HOST=$(jq -er 'first(.. | .MYSQL_HOST? // empty)' /tmp/secrets.json)
+    - MYSQL_USERNAME=$(jq -er 'first(.. | .MYSQL_USERNAME? // empty)' /tmp/secrets.json)
+    - MYSQL_PASSWORD=$(jq -er 'first(.. | .MYSQL_PASSWORD? // empty)' /tmp/secrets.json)
+    - MYSQL_DATABASE_NAME=$(jq -er 'first(.. | .MYSQL_DATABASE_NAME? // empty)' /tmp/secrets.json)
+    - GRAFANA_ADMIN_PASSWORD=$(jq -er 'first(.. | .GRAFANA_ADMIN_PASSWORD? // empty)' /tmp/secrets.json)
     - cd ansible
     - echo "vm_tpnote ansible_host=${USER_ID_UCA}.uca-devops.ovh ansible_user=ubuntu" > inventory.yml
   only:
@@ -127,10 +130,12 @@ init_database:
   image: registry.edu.forestier.re/infrastructure/images/docker:v1.0.0
   before_script:
     - get_secrets.sh > /tmp/secrets.json
-    - export MYSQL_HOST=$(cat /tmp/secrets.json | grep -o '"MYSQL_HOST":"[^"]*"' | cut -d'"' -f4)
-    - export MYSQL_USERNAME=$(cat /tmp/secrets.json | grep -o '"MYSQL_USERNAME":"[^"]*"' | cut -d'"' -f4)
-    - export MYSQL_PASSWORD=$(cat /tmp/secrets.json | grep -o '"MYSQL_PASSWORD":"[^"]*"' | cut -d'"' -f4)
-    - export MYSQL_DATABASE_NAME=$(cat /tmp/secrets.json | grep -o '"MYSQL_DATABASE_NAME":"[^"]*"' | cut -d'"' -f4)
+    # jq lit le JSON des secrets ; on l'installe seulement s'il manque dans l'image
+    - command -v jq >/dev/null || apk add --no-cache jq >/dev/null || (apt-get update -qq && apt-get install -y -qq jq)
+    - MYSQL_HOST=$(jq -er 'first(.. | .MYSQL_HOST? // empty)' /tmp/secrets.json)
+    - MYSQL_USERNAME=$(jq -er 'first(.. | .MYSQL_USERNAME? // empty)' /tmp/secrets.json)
+    - MYSQL_PASSWORD=$(jq -er 'first(.. | .MYSQL_PASSWORD? // empty)' /tmp/secrets.json)
+    - MYSQL_DATABASE_NAME=$(jq -er 'first(.. | .MYSQL_DATABASE_NAME? // empty)' /tmp/secrets.json)
   script:
     - echo "Importation des données initiales dans Clever Cloud..."
     - echo "SET FOREIGN_KEY_CHECKS=0; DROP TABLE IF EXISTS apiuser_art_collection, apiuser_flower_collection, apiuser_fossil_collection, apiuser_music_collection, apiflower_produces, apiart, apiflower, apifossil, apimusic, apiuser, apiserie, apiright; SET FOREIGN_KEY_CHECKS=1;" | docker run --rm -i mariadb:10.5 mariadb -h "$MYSQL_HOST" -u "$MYSQL_USERNAME" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE_NAME"
