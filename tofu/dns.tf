@@ -1,24 +1,25 @@
-resource "ovh_domain_zone_record" "tpnote_record" {
+# Trois sous-domaines pointent vers la VM ; Traefik route ensuite selon le nom demandé.
+resource "ovh_domain_zone_record" "app" {
   zone      = "uca-devops.ovh"
   subdomain = local.user_id_uca
   fieldtype = "A"
-  target    = uca_server.my_server.ipv4
+  target    = uca_server.vm.ipv4
   ttl       = 3600
 }
 
-resource "ovh_domain_zone_record" "api_record" {
+resource "ovh_domain_zone_record" "api" {
   zone      = "uca-devops.ovh"
   subdomain = "api.${local.user_id_uca}"
   fieldtype = "A"
-  target    = uca_server.my_server.ipv4
+  target    = uca_server.vm.ipv4
   ttl       = 3600
 }
 
-resource "ovh_domain_zone_record" "grafana_record" {
+resource "ovh_domain_zone_record" "grafana" {
   zone      = "uca-devops.ovh"
   subdomain = "grafana.${local.user_id_uca}"
   fieldtype = "A"
-  target    = uca_server.my_server.ipv4
+  target    = uca_server.vm.ipv4
   ttl       = 3600
 }
 

@@ -16,19 +16,19 @@ terraform {
 }
 
 provider "clevercloud" {
-  organisation = var.CC_ORGANISATION
-  token        = var.CC_TOKEN
-  secret       = var.CC_SECRET
+  organisation = var.clevercloud_organisation
+  token        = var.clevercloud_token
+  secret       = var.clevercloud_secret
 }
 
 provider "uca" {
   endpoint   = "https://cloud-ui.edu.forestier.re/api/"
-  user_token = var.UCA_TOKEN   
+  user_token = var.uca_token
 }
 
 provider "ovh" {
-  endpoint           = var.OVH_ENDPOINT
-  application_key    = var.OVH_APPLICATION_KEY
-  application_secret = var.OVH_APPLICATION_SECRET
-  consumer_key       = var.OVH_CONSUMER_KEY
+  endpoint           = var.ovh_endpoint
+  application_key    = var.ovh_application_key
+  application_secret = var.ovh_application_secret
+  consumer_key       = var.ovh_consumer_key
 }

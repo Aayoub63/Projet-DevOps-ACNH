@@ -1,17 +1,19 @@
-resource "uca_server" "my_server" {
-  name     = "tpnote-${var.user_id}"
+resource "uca_server" "vm" {
+  name     = "acnh-${var.user_id}"
   username = "ubuntu"
   ssh_key  = var.ssh_public_key
 }
 
-resource "uca_security_group" "my_sg" {
-  name = "sg-tpnote-${var.user_id}"
+# Seuls les ports utiles sont ouverts : SSH pour Ansible, HTTP et HTTPS pour Traefik.
+# Les autres services (Prometheus, actuator...) restent internes au réseau Docker.
+resource "uca_security_group" "vm" {
+  name = "sg-acnh-${var.user_id}"
 }
 
 resource "uca_security_rule" "allow_ssh" {
-  security_group_id = uca_security_group.my_sg.id
+  security_group_id = uca_security_group.vm.id
   name              = "allow-ssh"
-  description       = "Ouverture du port 22 pour acceder a la VM"
+  description       = "SSH, pour le deploiement avec Ansible"
   protocol          = "TCP"
   port              = 22
   direction         = "inbound"
@@ -19,9 +21,9 @@ resource "uca_security_rule" "allow_ssh" {
 }
 
 resource "uca_security_rule" "allow_http" {
-  security_group_id = uca_security_group.my_sg.id
+  security_group_id = uca_security_group.vm.id
   name              = "allow-http"
-  description       = "Ouverture du port 80 pour l'application"
+  description       = "HTTP, redirige vers HTTPS par Traefik"
   protocol          = "TCP"
   port              = 80
   direction         = "inbound"
@@ -29,44 +31,24 @@ resource "uca_security_rule" "allow_http" {
 }
 
 resource "uca_security_rule" "allow_https" {
-  security_group_id = uca_security_group.my_sg.id
+  security_group_id = uca_security_group.vm.id
   name              = "allow-https"
-  description       = "Ouverture du port 443 pour HTTPS"
+  description       = "HTTPS, point d'entree de l'application"
   protocol          = "TCP"
   port              = 443
   direction         = "inbound"
   ip_range          = "0.0.0.0/0"
 }
 
-resource "uca_security_rule" "allow_traefik" {
-  security_group_id = uca_security_group.my_sg.id
-  name              = "allow-traefik"
-  description       = "Ouverture du port 8080 pour Traefik"
-  protocol          = "TCP"
-  port              = 8080
-  direction         = "inbound"
-  ip_range          = "0.0.0.0/0"
-}
-
-resource "uca_security_rule" "allow_grafana" {
-  security_group_id = uca_security_group.my_sg.id
-  name              = "allow-grafana"
-  description       = "Ouverture du port 9090 pour Grafana/Prometheus"
-  protocol          = "TCP"
-  port              = 9090
-  direction         = "inbound"
-  ip_range          = "0.0.0.0/0"
-}
-
-resource "uca_security_group_attachment" "my_attachment" {
-  security_group_id = uca_security_group.my_sg.id
-  server_id         = uca_server.my_server.id
+resource "uca_security_group_attachment" "vm" {
+  security_group_id = uca_security_group.vm.id
+  server_id         = uca_server.vm.id
 }
 
 output "vm_ip" {
-  value = uca_server.my_server.ipv4
+  value = uca_server.vm.ipv4
 }
 
 output "vm_username" {
-  value = uca_server.my_server.username
+  value = uca_server.vm.username
 }
